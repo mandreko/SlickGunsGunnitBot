@@ -3,7 +3,6 @@ beautifulsoup4==4.5.3
 bs4==0.0.1
 logging==0.4.9.6
 packaging==16.8
-pkg-resources==0.0.0
 praw==4.4.0
 prawcore==0.8.0
 pyparsing==2.2.0
