@@ -10,6 +10,8 @@ import sqlite3
 import requests
 import urllib
 import urllib2
+import psycopg2
+psycopg2
 from bs4 import BeautifulSoup
 from posixpath import basename, dirname, join
 from praw.exceptions import APIException
@@ -30,6 +32,7 @@ REDDIT_USER = os.environ.get('USERNAME')
 REDDIT_PASSWORD = os.environ.get('PASSWORD')
 REDDIT_CLIENT_ID = os.environ.get('CLIENTID')
 REDDIT_CLIENT_SECRET = os.environ.get('CLIENTSECRET')
+DB_STRING = os.environ.get('DATABASE_URL')
 MESSAGE_TEMPLATE = """Direct Link: {1}
 
 
@@ -40,23 +43,35 @@ MESSAGE_TEMPLATE = """Direct Link: {1}
 (╯°□°)–︻╦╤─ - - -  pew pew pew!
 """
 
-if LOG_LEVEL:
+if not LOG_LEVEL:
 	LOG_LEVEL="INFO"
 log_level = logging.getLevelName(LOG_LEVEL)
 logging.basicConfig(filename=LOG_FILE,level=log_level,format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',datefmt='%m-%d %H:%M')
 
 # Store cookies globally to be used site-wide
 global_cookies = ""
-sql = sqlite3.connect(SEEN_FILE)
-cur = sql.cursor()
-cur.execute('CREATE TABLE IF NOT EXISTS oldposts(id TEXT)')
+
+# Setup database
+url = urlparse(DB_STRING)
+
+conn = psycopg2.connect(
+    database=url.path[1:],
+    user=url.username,
+    password=url.password,
+    host=url.hostname,
+    port=url.port
+)
+cur = conn.cursor()
+cur.execute('CREATE TABLE IF NOT EXISTS public.oldposts (id text NOT NULL, CONSTRAINT "PK_id" PRIMARY KEY (id));')
+conn.commit()
+cur.close()
 
 logging.debug("User Agent: %s" % USER_AGENT)
 logging.debug("Username: %s" % REDDIT_USER)
 logging.debug("Password: %s" % REDDIT_PASSWORD)
 logging.debug("Client ID: %s" % REDDIT_CLIENT_ID)
 logging.debug("Client Secret: %s" % REDDIT_CLIENT_SECRET)
-
+logging.debug("DB String: %s" % DB_STRING)
 
 @atexit.register
 def close():
@@ -132,7 +147,8 @@ def main():
 	for submission in subreddits.stream.submissions():
 		logging.debug("URL: {0}".format(submission.url.encode('utf-8')))
 
-		cur.execute('SELECT * FROM oldposts WHERE ID=?', [submission.id])
+		cur = conn.cursor()
+		cur.execute("SELECT * FROM public.oldposts WHERE ID=%s", (submission.id,))
 
 		if submission.is_self or not "slickguns.com" in submission.url:
 			logging.debug("Skipping post {0}. It's not a SlickGuns link post.".format(submission.id))
@@ -148,17 +164,23 @@ def main():
 			sanitized_url = sanitize_url(direct_url)
 
 			message_text = MESSAGE_TEMPLATE.format(submission.url.encode('utf-8'), sanitized_url.encode('utf-8'))
+			logging.info("Replying to post %s" % submission.id)
 			submission.reply(message_text)
 
 			# Add the post ID to the set of seen posts.
-			cur.execute('INSERT INTO oldposts VALUES(?)', [submission.id])
-			sql.commit()
+			logging.info("Inserting record %s into oldposts database" % submission.id)
+			cur.execute("INSERT INTO public.oldposts (id) VALUES (%s)", (submission.id,))
+			logging.info("Committing transaction")
+			conn.commit()
 
 			logging.info("Posted link for {0}".format(submission.url.encode('utf-8')))
 
 		except:
 			ex = sys.exc_info()[0]
 			logging.warning(ex)
+			logging.warning(repr(ex))
+		finally:
+			cur.close()
 
 
 if __name__ == "__main__":
