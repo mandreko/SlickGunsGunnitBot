@@ -149,7 +149,7 @@ def main():
         gundeal_urls = ['gun.deals', 'slickguns.com']
 
         if submission.is_self or not any(x in submission.url for x in gundeal_urls):
-            logging.info("Skipping post {0} (URL: {1}). It's not a GunDeals link post.".format(submission.id, submission.url))
+            logging.info("Skipping post {0}. It's not a GunDeals link post.".format(submission.id))
             continue
 
         if cur.fetchone():
